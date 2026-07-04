@@ -80,6 +80,7 @@ pub enum Message {
 
 /// What a `DragState` is moving: either a specific note, or the "포스트잇
 /// 목록" panel (which has no note id of its own).
+#[derive(Clone, Copy)]
 enum DragTarget {
     Note(u64),
     List,
@@ -99,6 +100,15 @@ struct DragState {
     /// keeps any coordinate-model mismatch bounded — it can never compound
     /// into runaway movement. This applies identically whether the target is
     /// a note or the list panel.
+    /// `None` also right after a mid-drag output hop (see `cross_output_hop`
+    /// and `note_drag_motion`/`list_drag_motion`): the surface is destroyed
+    /// and recreated under the cursor, which breaks the implicit grab, but
+    /// as long as the new surface is created positioned under the pointer
+    /// the compositor re-enters it and keeps delivering motion events with
+    /// the button still down. Re-anchoring `start`/`surface_id`/`press` here
+    /// (`press` reset to `None` so the next motion event re-establishes it,
+    /// same as a fresh `DragStart`) is what makes the drag feel continuous
+    /// across the monitor boundary instead of requiring a release-and-hop.
     press: Option<Point>,
     /// Rate-limits margin commits to roughly once per frame.
     last_apply: Option<Instant>,
@@ -165,6 +175,60 @@ fn new_note_id() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// Mid-drag monitor-boundary check, shared by `PostitApp::note_drag_motion`
+/// and `PostitApp::list_drag_motion`. `target_x`/`target_y` are the raw
+/// (unclamped) proposed position in the current output's coordinate space;
+/// `width`/`height` are the dragged thing's size (a note's `width` and the
+/// active preset's `note_height()`, or `LIST_SIZE`). `current_output` is the
+/// name of the output the drag is currently on — `None` is treated as index
+/// 0, matching the legacy/not-yet-placed convention used elsewhere (see
+/// `maybe_hop_list_output`).
+///
+/// Returns `Some((new_output_index, new_x, new_y))` once the dragged item's
+/// centerline has crossed past the current output's left or right edge and
+/// an adjacent output exists in that direction — the new position is
+/// expressed in the *new* output's coordinate space, y carried over and
+/// clamped to its height. Returns `None` when the drag should just clamp in
+/// place instead (no crossing yet, or no output to cross onto).
+fn cross_output_hop(
+    outputs: &[OutputInfo],
+    current_output: Option<&str>,
+    target_x: i32,
+    target_y: i32,
+    width: i32,
+    height: i32,
+) -> Option<(usize, i32, i32)> {
+    if outputs.len() < 2 {
+        return None;
+    }
+    let current_index = current_output
+        .and_then(|name| outputs.iter().position(|o| o.name == name))
+        .unwrap_or(0);
+    let current = &outputs[current_index];
+
+    if target_x + width / 2 > current.width {
+        if current_index + 1 >= outputs.len() {
+            return None;
+        }
+        let next = &outputs[current_index + 1];
+        let new_x = (target_x - current.width).max(0);
+        let new_y = target_y.clamp(0, (next.height - height).max(0));
+        return Some((current_index + 1, new_x, new_y));
+    }
+
+    if target_x + width / 2 < 0 {
+        if current_index == 0 {
+            return None;
+        }
+        let prev = &outputs[current_index - 1];
+        let new_x = (prev.width + target_x).min(prev.width - width).max(0);
+        let new_y = target_y.clamp(0, (prev.height - height).max(0));
+        return Some((current_index - 1, new_x, new_y));
+    }
+
+    None
 }
 
 /// Resolves a note's recorded output name to a concrete `OutputOption`.
@@ -378,45 +442,38 @@ impl PostitApp {
     fn handle_iced_event(&mut self, id: window::Id, event: Event) -> Task<Message> {
         match event {
             Event::Mouse(mouse::Event::CursorMoved { position }) => {
-                if let Some(drag) = &mut self.drag {
-                    if drag.surface_id == id {
-                        let Some(press) = drag.press else {
-                            drag.press = Some(position);
-                            return Task::none();
-                        };
-                        let due = drag
-                            .last_apply
-                            .is_none_or(|t| t.elapsed() >= Duration::from_millis(8));
-                        if !due {
-                            return Task::none();
-                        }
-                        let dx = (position.x - press.x).round() as i32;
-                        let dy = (position.y - press.y).round() as i32;
-                        let target_x = (drag.start.0 + dx).max(0);
-                        let target_y = (drag.start.1 + dy).max(0);
-                        match drag.target {
-                            DragTarget::Note(note_id) => {
-                                if let Some(note) = self.notes.get_mut(&note_id) {
-                                    if (note.x, note.y) != (target_x, target_y) {
-                                        drag.last_apply = Some(Instant::now());
-                                        note.x = target_x;
-                                        note.y = target_y;
-                                        let margin = (note.y, 0, 0, note.x);
-                                        return Task::done(Message::MarginChange { id, margin });
-                                    }
-                                }
-                            }
-                            DragTarget::List => {
-                                if self.list_pos != (target_x, target_y) {
-                                    drag.last_apply = Some(Instant::now());
-                                    self.list_pos = (target_x, target_y);
-                                    let margin = (target_y, 0, 0, target_x);
-                                    return Task::done(Message::MarginChange { id, margin });
-                                }
-                            }
-                        }
+                if self.drag.is_some() {
+                    // Scoped immutable borrow: extract everything needed as
+                    // owned values so it ends before we call the `&mut self`
+                    // motion handlers below (which may recreate a surface
+                    // and replace `self.drag` entirely on a mid-drag hop).
+                    let drag = self.drag.as_ref().expect("checked Some above");
+                    if drag.surface_id != id {
+                        return Task::none();
                     }
-                    return Task::none();
+                    let Some(press) = drag.press else {
+                        self.drag.as_mut().expect("checked Some above").press = Some(position);
+                        return Task::none();
+                    };
+                    let due = drag
+                        .last_apply
+                        .is_none_or(|t| t.elapsed() >= Duration::from_millis(8));
+                    if !due {
+                        return Task::none();
+                    }
+                    let dx = (position.x - press.x).round() as i32;
+                    let dy = (position.y - press.y).round() as i32;
+                    // Raw (unclamped) target, computed before any `.max(0)`
+                    // clamping so `cross_output_hop` can see genuine
+                    // out-of-bounds overshoot past either edge.
+                    let target_x = drag.start.0 + dx;
+                    let target_y = drag.start.1 + dy;
+                    let target = drag.target;
+
+                    return match target {
+                        DragTarget::Note(note_id) => self.note_drag_motion(id, note_id, target_x, target_y),
+                        DragTarget::List => self.list_drag_motion(id, target_x, target_y),
+                    };
                 }
                 if let Some(resize) = &mut self.resize {
                     if resize.surface_id == id {
@@ -457,9 +514,11 @@ impl PostitApp {
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 if let Some(drag) = self.drag.take() {
-                    // Only ever hop at release time: hopping mid-drag would
-                    // break the compositor's implicit pointer grab (see
-                    // `DragState` doc comment) and produce a much worse UX.
+                    // Continuous mid-drag hops (`note_drag_motion` /
+                    // `list_drag_motion`) handle crossing a monitor boundary
+                    // while the button is still down. This release-time hop
+                    // is a fallback for the case where the drag ends exactly
+                    // flush against an edge without ever having overshot it.
                     let task = match drag.target {
                         DragTarget::Note(note_id) => {
                             let task = self.maybe_hop_output(note_id);
@@ -482,6 +541,118 @@ impl PostitApp {
             }
             _ => Task::none(),
         }
+    }
+
+    /// Handles one `CursorMoved` sample of a note drag: either continues the
+    /// hop onto an adjacent output (see `cross_output_hop`) or, absent a
+    /// crossing, applies the ordinary clamp-and-commit-margin behavior that
+    /// existed before continuous hopping.
+    ///
+    /// `target_x`/`target_y` are the raw, unclamped proposed position (in
+    /// the current output's coordinate space) derived from `DragState`.
+    fn note_drag_motion(&mut self, surface_id: window::Id, note_id: u64, target_x: i32, target_y: i32) -> Task<Message> {
+        let Some(note) = self.notes.get(&note_id) else {
+            return Task::none();
+        };
+        let current_output = note.output.clone();
+        let width = note.width;
+        let height = self.settings.size_preset.note_height() as i32;
+
+        if let Some((new_index, new_x, new_y)) = cross_output_hop(
+            &self.outputs,
+            current_output.as_deref(),
+            target_x,
+            target_y,
+            width,
+            height,
+        ) {
+            let new_output_name = self.outputs[new_index].name.clone();
+            if let Some(note) = self.notes.get_mut(&note_id) {
+                note.output = Some(new_output_name);
+                note.x = new_x;
+                note.y = new_y;
+            }
+            // The note's output/x/y just changed for real (unlike a
+            // same-output drag sample, which only commits on release) — this
+            // is the only chance to persist it before a crash or restart.
+            self.save();
+            let recreate_task = self.recreate_note_surface(note_id);
+            // Re-anchor the drag onto the freshly created surface so the
+            // still-held button keeps driving it (see `DragState::press`
+            // doc comment).
+            if let Some(new_surface_id) = self.note_surface.get(&note_id).copied() {
+                self.drag = Some(DragState {
+                    target: DragTarget::Note(note_id),
+                    surface_id: new_surface_id,
+                    start: (new_x, new_y),
+                    press: None,
+                    last_apply: None,
+                });
+            }
+            return recreate_task;
+        }
+
+        // No crossing: same clamp-and-commit-margin behavior as before
+        // continuous hopping existed.
+        let clamped_x = target_x.max(0);
+        let clamped_y = target_y.max(0);
+        let Some(note) = self.notes.get_mut(&note_id) else {
+            return Task::none();
+        };
+        if (note.x, note.y) != (clamped_x, clamped_y) {
+            note.x = clamped_x;
+            note.y = clamped_y;
+            let margin = (note.y, 0, 0, note.x);
+            if let Some(drag) = &mut self.drag {
+                drag.last_apply = Some(Instant::now());
+            }
+            return Task::done(Message::MarginChange { id: surface_id, margin });
+        }
+        Task::none()
+    }
+
+    /// Mirrors `note_drag_motion` for the "포스트잇 목록" panel. Position
+    /// isn't persisted (same as `maybe_hop_list_output`), so no `save()`.
+    fn list_drag_motion(&mut self, surface_id: window::Id, target_x: i32, target_y: i32) -> Task<Message> {
+        let current_output = self.list_output.clone();
+        let width = LIST_SIZE.0 as i32;
+        let height = LIST_SIZE.1 as i32;
+
+        if let Some((new_index, new_x, new_y)) = cross_output_hop(
+            &self.outputs,
+            current_output.as_deref(),
+            target_x,
+            target_y,
+            width,
+            height,
+        ) {
+            let new_output_name = self.outputs[new_index].name.clone();
+            self.list_output = Some(new_output_name);
+            self.list_pos = (new_x, new_y);
+            let recreate_task = self.recreate_list_surface();
+            if let Some(new_surface_id) = self.list_surface {
+                self.drag = Some(DragState {
+                    target: DragTarget::List,
+                    surface_id: new_surface_id,
+                    start: (new_x, new_y),
+                    press: None,
+                    last_apply: None,
+                });
+            }
+            return recreate_task;
+        }
+
+        let clamped_x = target_x.max(0);
+        let clamped_y = target_y.max(0);
+        if self.list_pos != (clamped_x, clamped_y) {
+            self.list_pos = (clamped_x, clamped_y);
+            let margin = (clamped_y, 0, 0, clamped_x);
+            if let Some(drag) = &mut self.drag {
+                drag.last_apply = Some(Instant::now());
+            }
+            return Task::done(Message::MarginChange { id: surface_id, margin });
+        }
+        Task::none()
     }
 
     /// If the note is now flush against the left or right edge of the output
