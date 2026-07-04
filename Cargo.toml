@@ -1,0 +1,21 @@
+[package]
+name = "postit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dirs = "6.0.0"
+iced = "0.14"
+iced_layershell = "0.18"
+ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+wayland-backend = "0.3.15"
+wayland-client = "0.31.14"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+wayland-protocols-wlr = { version = "0.3.12", default-features = false, features = ["client"] }
+wayland-scanner = "0.31.10"
+
+[patch.crates-io]
+layershellev = { path = "vendor/layershellev" }
+iced_layershell = { path = "vendor/iced_layershell" }

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Postit
+Comment=화면에 붙이는 포스트잇
+Exec=postit
+Icon=postit
+Terminal=false
+Categories=Utility;
