@@ -143,7 +143,9 @@ fn input<'a>(note: &'a Note, preset: SizePreset, settings: &AppSettings) -> Elem
 }
 
 fn menu_button<'a>(note_id: u64, expanded: bool, preset: SizePreset) -> Element<'a, Message> {
-    let label = if expanded { "▴" } else { "▾" };
+    // U+25B2/25BC (full-size triangles): the "small triangle" variants
+    // (U+25B4/25BE) render tiny regardless of font size.
+    let label = if expanded { "▲" } else { "▼" };
     button(text(label).size(preset.menu_button_text_size()))
         .padding(preset.menu_button_padding())
         .on_press(Message::ToggleMenu(note_id))

@@ -52,12 +52,12 @@ struct PostitTray {
 }
 
 impl ksni::Tray for PostitTray {
-    /// The COSMIC status-area applet (1.0.15) routes *every* mouse button to
-    /// `Activate` for non-menu items — right-click never opens the dbusmenu.
-    /// Declaring the item menu-only (`ItemIsMenu=true`) makes the applet open
-    /// the menu on any click instead, which is the only reliable way to reach
-    /// 목록/종료/설정 there. Quick note creation moves into the menu.
-    const MENU_ON_ACTIVATE: bool = true;
+    /// Older COSMIC status-area builds (≤1.0.15~1780075425) routed every
+    /// mouse button to `Activate`, which forced this to `true` (menu-only
+    /// item). The 1782766684+ build splits clicks properly — left activates,
+    /// right opens the dbusmenu — so quick note creation on left-click is
+    /// back.
+    const MENU_ON_ACTIVATE: bool = false;
 
     fn id(&self) -> String {
         "postit".into()
