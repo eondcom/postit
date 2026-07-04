@@ -66,21 +66,20 @@ impl SizePreset {
     /// total                = inner content width + row gaps + row h-padding
     /// ```
     ///
-    /// Default: swatch btn = 14+2*1=16, icon btn = 14+2*4=22.
-    ///   inner = 6*16 + 5*4 (=116) + 4*22 (=88) = 204
+    /// Default: swatch btn = 14+2*3=20, icon btn = 16+2*5=26.
+    ///   inner = 6*20 + 5*4 (=120) + 4*26 (=104) = 244
     ///   gaps  = 4*6 = 24; h-padding = 2*6 = 12
-    ///   total = 204 + 24 + 12 = **240** (exact, no safety margin needed).
+    ///   total = 244 + 24 + 12 = **280** (hit target ≥24px per GNOME HIG).
     ///
-    /// Small: swatch btn = 11+2*1=13, icon btn = 11+2*3=17.
-    ///   inner = 6*13 + 5*3 (=93) + 4*17 (=68) = 161
+    /// Small: swatch btn = 11+2*3=17, icon btn = 11+2*5=21.
+    ///   inner = 6*17 + 5*3 (=102) + 4*21 (=84) = 201
     ///   gaps  = 4*5 = 20; h-padding = 2*5 = 10
-    ///   total = 161 + 20 + 10 = 191, rounded up to **200** — text/emoji glyph
-    ///   advance widths can run a little wider than the nominal font size
-    ///   used above, so a ~9px buffer avoids clipping in practice.
+    ///   total = 201 + 20 + 10 = **231** — hit target ≥20px; text/emoji glyph
+    ///   advance widths can run a little wider than nominal, so margins stay safe.
     pub fn min_note_width(&self) -> i32 {
         match self {
-            SizePreset::Default => 240,
-            SizePreset::Small => 200,
+            SizePreset::Default => 280,
+            SizePreset::Small => 231,
         }
     }
 
@@ -111,8 +110,8 @@ impl SizePreset {
     /// Padding around the ▾/▴ menu-toggle button.
     pub fn menu_button_padding(&self) -> u16 {
         match self {
-            SizePreset::Default => 4,
-            SizePreset::Small => 3,
+            SizePreset::Default => 5,
+            SizePreset::Small => 4,
         }
     }
 
@@ -127,8 +126,8 @@ impl SizePreset {
     /// Padding around each color swatch button.
     pub fn swatch_padding(&self) -> u16 {
         match self {
-            SizePreset::Default => 1,
-            SizePreset::Small => 1,
+            SizePreset::Default => 3,
+            SizePreset::Small => 3,
         }
     }
 
@@ -143,7 +142,7 @@ impl SizePreset {
     /// Font size used for the 📌/🖥/🔗/🗑 icon buttons in the options row.
     pub fn icon_text_size(&self) -> u32 {
         match self {
-            SizePreset::Default => 14,
+            SizePreset::Default => 16,
             SizePreset::Small => 11,
         }
     }
@@ -151,8 +150,8 @@ impl SizePreset {
     /// Padding around each of the 📌/🖥/🔗/🗑 icon buttons.
     pub fn icon_button_padding(&self) -> u16 {
         match self {
-            SizePreset::Default => 4,
-            SizePreset::Small => 3,
+            SizePreset::Default => 5,
+            SizePreset::Small => 5,
         }
     }
 
