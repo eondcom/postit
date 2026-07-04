@@ -52,6 +52,13 @@ struct PostitTray {
 }
 
 impl ksni::Tray for PostitTray {
+    /// The COSMIC status-area applet (1.0.15) routes *every* mouse button to
+    /// `Activate` for non-menu items — right-click never opens the dbusmenu.
+    /// Declaring the item menu-only (`ItemIsMenu=true`) makes the applet open
+    /// the menu on any click instead, which is the only reliable way to reach
+    /// 목록/종료/설정 there. Quick note creation moves into the menu.
+    const MENU_ON_ACTIVATE: bool = true;
+
     fn id(&self) -> String {
         "postit".into()
     }
@@ -67,9 +74,14 @@ impl ksni::Tray for PostitTray {
     /// Left click (the "primary activation") on the tray icon: spawn a
     /// yellow note directly, without going through the menu.
     fn activate(&mut self, _x: i32, _y: i32) {
+        eprintln!("[postit] tray: Activate (left-click) called");
         let _ = self
             .tx
             .send(TrayMessage::Event(TrayEvent::NewNote(NoteColor::Yellow)));
+    }
+
+    fn secondary_activate(&mut self, _x: i32, _y: i32) {
+        eprintln!("[postit] tray: SecondaryActivate (middle-click) called");
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
