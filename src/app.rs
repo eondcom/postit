@@ -676,6 +676,58 @@ impl PostitApp {
         }
     }
 
+    /// Gathers all notes to the primary (first) monitor, clamping their
+    /// positions to stay within bounds, and recreates all affected note
+    /// surfaces and the list panel (if open).
+    fn gather_all_notes(&mut self) -> Task<Message> {
+        // Re-scan outputs even if this is called without a prior RefreshOutputs
+        self.refresh_outputs();
+
+        if self.outputs.is_empty() {
+            return Task::none();
+        }
+
+        let target = self.outputs[0].clone();
+        let target_width = target.width;
+        let target_height = target.height;
+
+        // Pre-copy preset values to avoid borrow checker issues
+        let preset = self.settings.size_preset;
+        let note_height = preset.note_height() as i32;
+
+        // Update all notes to point to the first monitor and clamp their positions
+        for note in self.notes.values_mut() {
+            note.output = Some(target.name.clone());
+            note.x = note.x.clamp(0, (target_width - note.width).max(0));
+            note.y = note.y.clamp(0, (target_height - note_height).max(0));
+        }
+
+        self.save();
+
+        // Collect note IDs that have surfaces so we can recreate them
+        let note_ids_with_surfaces: Vec<u64> = self
+            .note_surface
+            .keys()
+            .copied()
+            .collect();
+
+        let mut tasks = Vec::new();
+
+        // Recreate all note surfaces that exist
+        for note_id in note_ids_with_surfaces {
+            tasks.push(self.recreate_note_surface(note_id));
+        }
+
+        // If the list panel is open, recreate it to ensure it's on the primary monitor
+        if self.list_surface.is_some() {
+            self.list_output = Some(target.name.clone());
+            self.list_pos = LIST_DEFAULT_POS;
+            tasks.push(self.recreate_list_surface());
+        }
+
+        Task::batch(tasks)
+    }
+
     fn maybe_hop_output(&mut self, note_id: u64) -> Task<Message> {
         if self.outputs.len() < 2 {
             return Task::none();
@@ -1271,6 +1323,9 @@ impl PostitApp {
             TrayMessage::Event(TrayEvent::RefreshOutputs) => {
                 self.refresh_outputs();
                 Task::none()
+            }
+            TrayMessage::Event(TrayEvent::GatherNotes) => {
+                self.gather_all_notes()
             }
             TrayMessage::Event(TrayEvent::ShowList) => self.update(Message::ToggleList),
             TrayMessage::Event(TrayEvent::SetSizePreset(preset)) => {

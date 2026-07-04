@@ -111,9 +111,11 @@ fn list_button<'a>(label: &'a str, message: Message) -> Element<'a, Message> {
 /// same rationale as the note grip (the cursor quickly outruns this narrow
 /// strip during a fast drag).
 fn drag_grip<'a>() -> Element<'a, Message> {
+    // Fixed height: `Length::Fill` here makes the whole header row balloon
+    // vertically (the row stretches to the tallest child's fill request).
     let handle = container(text("⣿").size(12).color(Color::from_rgb8(120, 108, 100)))
         .width(Length::Fixed(18.0))
-        .height(Length::Fill)
+        .height(Length::Fixed(22.0))
         .align_x(Alignment::Center)
         .align_y(Alignment::Center);
 

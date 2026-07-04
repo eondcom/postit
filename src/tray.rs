@@ -25,6 +25,8 @@ use crate::settings::SizePreset;
 pub enum TrayEvent {
     NewNote(NoteColor),
     RefreshOutputs,
+    /// Gather all notes to the primary (first) monitor.
+    GatherNotes,
     ShowList,
     /// Picked from the "크기" submenu: switch every note to this size preset.
     SetSizePreset(SizePreset),
@@ -102,6 +104,16 @@ impl ksni::Tray for PostitTray {
                     let _ = this
                         .tx
                         .send(TrayMessage::Event(TrayEvent::RefreshOutputs));
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "포스트잇 모두 가져오기".into(),
+                activate: Box::new(|this: &mut Self| {
+                    let _ = this
+                        .tx
+                        .send(TrayMessage::Event(TrayEvent::GatherNotes));
                 }),
                 ..Default::default()
             }
