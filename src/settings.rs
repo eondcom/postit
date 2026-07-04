@@ -103,8 +103,8 @@ impl SizePreset {
     /// Font size of the ▾/▴ menu-toggle button label.
     pub fn menu_button_text_size(&self) -> u32 {
         match self {
-            SizePreset::Default => 12,
-            SizePreset::Small => 10,
+            SizePreset::Default => 16,
+            SizePreset::Small => 14,
         }
     }
 
