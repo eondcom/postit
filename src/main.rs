@@ -1,6 +1,7 @@
 mod app;
 mod colors;
 mod focus;
+mod icons;
 mod list_view;
 mod note;
 mod note_view;

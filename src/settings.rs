@@ -58,7 +58,7 @@ impl SizePreset {
     ///
     /// ```text
     /// swatch button width  = swatch_size() + 2*swatch_padding()
-    /// icon button width    = icon_text_size() + 2*icon_button_padding()
+    /// icon button width    = icon_svg_size() + 2*icon_button_padding()
     /// inner content width  = 6 * swatch_button + 5*swatch_spacing()   (the swatches row)
     ///                      + 4 * icon_button                          (pin/monitor/link/trash)
     /// row gaps             = 4 * options_row_spacing()  (5 children: swatches, pin, 🖥, 🔗, 🗑)
@@ -66,20 +66,23 @@ impl SizePreset {
     /// total                = inner content width + row gaps + row h-padding
     /// ```
     ///
+    /// (Icons used to be text/emoji glyphs sized in font px; now they're
+    /// `icon_svg_size()` Lucide SVGs — same idea, slightly different px.)
+    ///
     /// Default: swatch btn = 14+2*3=20, icon btn = 16+2*5=26.
     ///   inner = 6*20 + 5*4 (=120) + 4*26 (=104) = 244
     ///   gaps  = 4*6 = 24; h-padding = 2*6 = 12
     ///   total = 244 + 24 + 12 = **280** (hit target ≥24px per GNOME HIG).
     ///
-    /// Small: swatch btn = 11+2*3=17, icon btn = 11+2*5=21.
-    ///   inner = 6*17 + 5*3 (=102) + 4*21 (=84) = 201
+    /// Small: swatch btn = 11+2*3=17, icon btn = 13+2*5=23.
+    ///   inner = 6*17 + 5*3 (=102) + 4*23 (=92) = 209
     ///   gaps  = 4*5 = 20; h-padding = 2*5 = 10
-    ///   total = 201 + 20 + 10 = **231** — hit target ≥20px; text/emoji glyph
+    ///   total = 209 + 20 + 10 = **239** — hit target ≥20px; SVG glyph
     ///   advance widths can run a little wider than nominal, so margins stay safe.
     pub fn min_note_width(&self) -> i32 {
         match self {
             SizePreset::Default => 280,
-            SizePreset::Small => 231,
+            SizePreset::Small => 239,
         }
     }
 
@@ -99,11 +102,14 @@ impl SizePreset {
         }
     }
 
-    /// Font size of the ▾/▴ menu-toggle button label.
-    pub fn menu_button_text_size(&self) -> u32 {
+    /// Side length of the chevron-down/chevron-up SVG icon inside the
+    /// menu-toggle button (replaces the old ▲/▼ text glyph). Kept slightly
+    /// under the old text glyph's font size, since the Lucide chevron glyph
+    /// already fills most of its 24x24 viewBox.
+    pub fn menu_button_svg_size(&self) -> f32 {
         match self {
-            SizePreset::Default => 16,
-            SizePreset::Small => 14,
+            SizePreset::Default => 14.0,
+            SizePreset::Small => 12.0,
         }
     }
 
@@ -139,11 +145,13 @@ impl SizePreset {
         }
     }
 
-    /// Font size used for the 📌/🖥/🔗/🗑 icon buttons in the options row.
-    pub fn icon_text_size(&self) -> u32 {
+    /// Side length of the pin/monitor/link/trash-2 SVG icons in the options
+    /// row (replaces the old 📌/🖥/🔗/🗑 emoji glyphs), sized to feel like a
+    /// similar visual weight to the text/emoji buttons they replaced.
+    pub fn icon_svg_size(&self) -> f32 {
         match self {
-            SizePreset::Default => 16,
-            SizePreset::Small => 11,
+            SizePreset::Default => 16.0,
+            SizePreset::Small => 13.0,
         }
     }
 
@@ -180,11 +188,12 @@ impl SizePreset {
         }
     }
 
-    /// Font size of the "⣿" glyph drawn inside the drag grip.
-    pub fn grip_icon_text_size(&self) -> u32 {
+    /// Side length of the grip-vertical SVG icon drawn inside the drag grip
+    /// (replaces the old "⣿" text glyph).
+    pub fn grip_svg_size(&self) -> f32 {
         match self {
-            SizePreset::Default => 12,
-            SizePreset::Small => 9,
+            SizePreset::Default => 12.0,
+            SizePreset::Small => 9.0,
         }
     }
 

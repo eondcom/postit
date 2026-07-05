@@ -5,7 +5,13 @@ use iced::{Alignment, Border, Color, Element, Length};
 
 use crate::app::Message;
 use crate::colors::NoteColor;
+use crate::icons;
 use crate::note::Note;
+
+/// Color used for the list panel's icon buttons (grip, monitor, close,
+/// import) — matches `list_button_style`'s text color, so the SVG icons read
+/// the same brown as the panel's text labels.
+const LIST_ICON_COLOR: Color = Color::from_rgb8(62, 39, 35);
 
 /// Maximum characters shown for a note's text before it gets truncated with
 /// an ellipsis.
@@ -61,7 +67,7 @@ fn note_row<'a>(note: &'a Note) -> Element<'a, Message> {
     row![
         color_chip(note.color),
         text(label).size(12).width(Length::Fill),
-        list_button("가져오기", Message::ImportNote(note.id)),
+        import_button(note.id),
         list_button("삭제", Message::DeleteNote(note.id)),
     ]
     .spacing(6)
@@ -97,6 +103,24 @@ fn color_chip<'a>(color: NoteColor) -> Element<'a, Message> {
         .into()
 }
 
+/// The "가져오기" button: a small download icon plus its text label, since a
+/// bare download glyph alone would be too ambiguous a control to fire from a
+/// dense list row (unlike the single-purpose icon-only buttons elsewhere).
+fn import_button<'a>(note_id: u64) -> Element<'a, Message> {
+    let content = row![
+        icons::icon(icons::DOWNLOAD, 11.0, LIST_ICON_COLOR),
+        text("가져오기").size(11),
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center);
+
+    button(content)
+        .padding([2, 6])
+        .on_press(Message::ImportNote(note_id))
+        .style(list_button_style)
+        .into()
+}
+
 fn list_button<'a>(label: &'a str, message: Message) -> Element<'a, Message> {
     button(text(label).size(11))
         .padding([2, 6])
@@ -113,7 +137,8 @@ fn list_button<'a>(label: &'a str, message: Message) -> Element<'a, Message> {
 fn drag_grip<'a>() -> Element<'a, Message> {
     // Fixed height: `Length::Fill` here makes the whole header row balloon
     // vertically (the row stretches to the tallest child's fill request).
-    let handle = container(text("⣿").size(12).color(Color::from_rgb8(120, 108, 100)))
+    let icon = icons::icon(icons::GRIP_VERTICAL, 12.0, Color::from_rgb8(120, 108, 100));
+    let handle = container(icon)
         .width(Length::Fixed(18.0))
         .height(Length::Fixed(22.0))
         .align_x(Alignment::Center)
@@ -126,7 +151,7 @@ fn drag_grip<'a>() -> Element<'a, Message> {
 }
 
 fn move_button<'a>() -> Element<'a, Message> {
-    button(text("🖥").size(12))
+    button(icons::icon(icons::MONITOR, 12.0, LIST_ICON_COLOR))
         .padding(4)
         .on_press(Message::MoveListToNextOutput)
         .style(list_button_style)
@@ -134,7 +159,7 @@ fn move_button<'a>() -> Element<'a, Message> {
 }
 
 fn close_button<'a>() -> Element<'a, Message> {
-    button(text("✕").size(12))
+    button(icons::icon(icons::X, 12.0, LIST_ICON_COLOR))
         .padding(4)
         .on_press(Message::ToggleList)
         .style(list_button_style)

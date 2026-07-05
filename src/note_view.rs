@@ -1,8 +1,9 @@
-use iced::widget::{button, column, container, row, text, text_input, MouseArea};
+use iced::widget::{button, column, container, row, text_input, MouseArea};
 use iced::{Alignment, Background, Border, Color, Element, Length};
 
 use crate::app::Message;
 use crate::colors::NoteColor;
+use crate::icons;
 use crate::note::Note;
 use crate::settings::{AppSettings, SizePreset};
 
@@ -10,6 +11,11 @@ use crate::settings::{AppSettings, SizePreset};
 /// global opacity setting, so text stays legible even at low opacity (per
 /// the "투명도 60%여도 글자는 잘 보이게" requirement).
 const MIN_TEXT_ALPHA: f32 = 0.85;
+
+/// Color used for the note's icon buttons (menu chevron, pin, monitor, link,
+/// trash) — matches `plain_button_style`'s text color, so the SVG icons read
+/// the same brown as any text label would.
+const ICON_COLOR: Color = Color::from_rgb8(62, 39, 35);
 
 /// Applies `settings.opacity_alpha()` to a color's existing alpha channel
 /// (background/border use this directly).
@@ -72,7 +78,8 @@ pub fn view<'a>(note: &'a Note, expanded: bool, settings: &AppSettings) -> Eleme
 /// cursor quickly leaves this narrow strip during a fast drag and
 /// per-widget hover-only callbacks would miss it.
 fn grip<'a>(note_id: u64, color: NoteColor, preset: SizePreset) -> Element<'a, Message> {
-    let handle = container(text("⣿").size(preset.grip_icon_text_size()).color(color.border()))
+    let icon = icons::icon(icons::GRIP_VERTICAL, preset.grip_svg_size(), color.border());
+    let handle = container(icon)
         .width(Length::Fixed(preset.grip_width()))
         .height(Length::Fill)
         .align_x(Alignment::Center)
@@ -143,10 +150,12 @@ fn input<'a>(note: &'a Note, preset: SizePreset, settings: &AppSettings) -> Elem
 }
 
 fn menu_button<'a>(note_id: u64, expanded: bool, preset: SizePreset) -> Element<'a, Message> {
-    // U+25B2/25BC (full-size triangles): the "small triangle" variants
-    // (U+25B4/25BE) render tiny regardless of font size.
-    let label = if expanded { "▲" } else { "▼" };
-    button(text(label).size(preset.menu_button_text_size()))
+    let bytes = if expanded {
+        icons::CHEVRON_UP
+    } else {
+        icons::CHEVRON_DOWN
+    };
+    button(icons::icon(bytes, preset.menu_button_svg_size(), ICON_COLOR))
         .padding(preset.menu_button_padding())
         .on_press(Message::ToggleMenu(note_id))
         .style(plain_button_style)
@@ -160,26 +169,30 @@ fn options_row<'a>(note: &'a Note, preset: SizePreset) -> Element<'a, Message> {
             row.push(color_swatch(note.id, color, preset))
         });
 
-    let pin_label = if note.always_visible { "📌" } else { "📍" };
-    let pin = button(text(pin_label).size(preset.icon_text_size()))
+    let pin_icon = if note.always_visible {
+        icons::PIN
+    } else {
+        icons::PIN_OFF
+    };
+    let pin = button(icons::icon(pin_icon, preset.icon_svg_size(), ICON_COLOR))
         .padding(preset.icon_button_padding())
         .on_press(Message::ToggleAlwaysVisible(note.id))
         .style(plain_button_style);
 
     // Cycles the note to the next output (monitor); no-op (per app.rs) if
     // fewer than two were enumerated at startup.
-    let move_output = button(text("🖥").size(preset.icon_text_size()))
+    let move_output = button(icons::icon(icons::MONITOR, preset.icon_svg_size(), ICON_COLOR))
         .padding(preset.icon_button_padding())
         .on_press(Message::MoveToNextOutput(note.id))
         .style(plain_button_style);
 
     // Rebind the note to the currently active program.
-    let rebind = button(text("🔗").size(preset.icon_text_size()))
+    let rebind = button(icons::icon(icons::LINK, preset.icon_svg_size(), ICON_COLOR))
         .padding(preset.icon_button_padding())
         .on_press(Message::RebindApp(note.id))
         .style(plain_button_style);
 
-    let trash = button(text("🗑").size(preset.icon_text_size()))
+    let trash = button(icons::icon(icons::TRASH_2, preset.icon_svg_size(), ICON_COLOR))
         .padding(preset.icon_button_padding())
         .on_press(Message::DeleteNote(note.id))
         .style(plain_button_style);
