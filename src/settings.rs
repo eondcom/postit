@@ -204,6 +204,48 @@ impl SizePreset {
             SizePreset::Small => 8.0,
         }
     }
+
+    /// Rough width (px) needed to show `text` on one line at this preset's
+    /// `text_size()`, plus the fixed chrome (grip, menu button, resize
+    /// handle, input padding) surrounding the `text_input` in the note's
+    /// row. Not exact glyph metrics — a proportional font's per-character
+    /// advance varies — just enough to drive `TextChanged`'s "grow width as
+    /// you type" behavior without under- or over-shooting by a lot.
+    ///
+    /// Counts Hangul/CJK/fullwidth characters at roughly a full em (they
+    /// render close to square) and everything else at about half that —
+    /// undercounting Korean text here left the estimate narrower than the
+    /// real rendered width, so `text_input` kept scrolling to follow the
+    /// cursor and clipped the start of the line off-screen.
+    pub fn text_width_estimate(&self, text: &str) -> i32 {
+        let (narrow_px, wide_px, chrome) = match self {
+            SizePreset::Default => (8, 15, 64),
+            SizePreset::Small => (6, 12, 51),
+        };
+        let content: i32 = text
+            .chars()
+            .map(|c| if is_wide_char(c) { wide_px } else { narrow_px })
+            .sum();
+        chrome + content
+    }
+}
+
+/// Whether `c` renders roughly full-width (Hangul, CJK ideographs, kana,
+/// fullwidth forms) rather than the narrower advance of Latin/digits/
+/// punctuation. Used only to weight `text_width_estimate`'s rough per-char
+/// guess — not a real Unicode East-Asian-Width implementation.
+fn is_wide_char(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x11FF   // Hangul Jamo
+        | 0x3130..=0x318F // Hangul Compatibility Jamo
+        | 0xA960..=0xA97F // Hangul Jamo Extended-A
+        | 0xAC00..=0xD7A3 // Hangul Syllables
+        | 0xD7B0..=0xD7FF // Hangul Jamo Extended-B
+        | 0x3000..=0x303F // CJK Symbols and Punctuation
+        | 0x3040..=0x30FF // Hiragana / Katakana
+        | 0x4E00..=0x9FFF // CJK Unified Ideographs
+        | 0xFF00..=0xFFEF // Halfwidth and Fullwidth Forms
+    )
 }
 
 /// Default note opacity, percent (0..=100). Applied to both the note's

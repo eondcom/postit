@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use iced::window;
-use iced::{event, mouse, Element, Event, Point, Subscription, Task};
+use iced::{event, keyboard, mouse, Element, Event, Point, Subscription, Task};
 
 use iced_layershell::daemon;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption};
@@ -539,6 +539,23 @@ impl PostitApp {
                 }
                 Task::none()
             }
+            // Only reaches here when nothing captured the key (see the
+            // `event::Status::Ignored` guard in `subscription`) — i.e. the
+            // note's grip/resize-handle/menu was clicked rather than its
+            // text field, so there's no focused `text_input` to already
+            // handle Del itself.
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(keyboard::key::Named::Delete),
+                ..
+            }) => {
+                let Some(&note_id) = self.surfaces.get(&id) else {
+                    return Task::none();
+                };
+                if self.notes.get(&note_id).is_some_and(|note| note.text.is_empty()) {
+                    return self.update(Message::DeleteNote(note_id));
+                }
+                Task::none()
+            }
             _ => Task::none(),
         }
     }
@@ -908,12 +925,20 @@ impl PostitApp {
         match message {
             Message::CreateNote(color) => {
                 let id = new_note_id();
-                let step = ((self.notes.len() as i32) % 10) * 24;
+                let preset = self.settings.size_preset;
+                // Cascade rightward only, all notes sharing the first note's
+                // y — not the old diagonal down-right cascade — so a run of
+                // freshly-created notes reads as one row instead of a
+                // staircase. Stepping by the note's own width (plus a small
+                // gap) rather than a fixed pixel amount keeps consecutive
+                // notes from overlapping regardless of size preset.
+                const CASCADE_GAP: i32 = 12;
+                let step = ((self.notes.len() as i32) % 10) * (preset.default_note_width() + CASCADE_GAP);
                 let x = 120 + step;
-                let y = 120 + step;
+                let y = 120;
                 let bound_app = self.active_app.clone();
                 let mut note = Note::new(id, color, x, y, bound_app);
-                note.width = self.settings.size_preset.default_note_width();
+                note.width = preset.default_note_width();
                 if let Some(first) = self.outputs.first() {
                     note.output = Some(first.name.clone());
                 }
@@ -934,11 +959,50 @@ impl PostitApp {
                 Task::batch(vec![new_layer_task, focus_task])
             }
             Message::TextChanged(note_id, text) => {
+                let Some(note) = self.notes.get(&note_id) else {
+                    return Task::none();
+                };
+                // `text_input` fires `on_input` unconditionally on every
+                // Delete/Backspace press — even one with nothing to delete —
+                // republishing its (possibly unchanged) contents. So an
+                // already-empty field publishing empty again is exactly a
+                // Delete/Backspace pressed with nothing left to remove,
+                // distinct from selecting existing text and clearing it
+                // (which goes non-empty -> empty, handled below like any
+                // other edit). Treat that no-op case as "delete this note"
+                // instead of Del conflicting with clear-and-retype.
+                if note.text.is_empty() && text.is_empty() {
+                    return self.update(Message::DeleteNote(note_id));
+                }
+
+                let preset = self.settings.size_preset;
+                let mut resize_task = Task::none();
                 if let Some(note) = self.notes.get_mut(&note_id) {
                     note.text = text;
+                    // Grow-to-fit, but only rightward and only up to
+                    // `MAX_NOTE_WIDTH` — the same ceiling the resize handle
+                    // is clamped to. Never shrinks back on deletion; that
+                    // stays the resize handle's job.
+                    let desired = preset
+                        .text_width_estimate(&note.text)
+                        .clamp(preset.default_note_width(), MAX_NOTE_WIDTH);
+                    if desired > note.width {
+                        note.width = desired;
+                        if let Some(&surface_id) = self.note_surface.get(&note_id) {
+                            let height = if self.menu_open.contains(&note_id) {
+                                preset.note_expanded_height()
+                            } else {
+                                preset.note_height()
+                            };
+                            resize_task = Task::done(Message::SizeChange {
+                                id: surface_id,
+                                size: (note.width as u32, height),
+                            });
+                        }
+                    }
                 }
                 self.save();
-                Task::none()
+                resize_task
             }
             Message::ToggleMenu(note_id) => {
                 let Some(&surface_id) = self.note_surface.get(&note_id) else {
@@ -1353,8 +1417,17 @@ impl PostitApp {
 
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch(vec![
-            event::listen_with(|event, _status, id| match event {
+            event::listen_with(|event, status, id| match event {
                 Event::Mouse(_) => Some(Message::IcedEvent(id, event)),
+                // Only when no widget claimed it — a focused `text_input`
+                // always captures Delete/Backspace itself (see
+                // `TextChanged`'s own empty-check), so this only ever fires
+                // when the note's grip/resize-handle/menu was clicked
+                // instead of its text field, which leaves no widget focused
+                // to catch the key.
+                Event::Keyboard(_) if status == event::Status::Ignored => {
+                    Some(Message::IcedEvent(id, event))
+                }
                 _ => None,
             }),
             window::close_events().map(Message::WindowClosed),
