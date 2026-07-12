@@ -31,6 +31,7 @@ const SELF_APP_ID: &str = "postit";
 #[derive(Debug, Clone)]
 pub enum Message {
     CreateNote(NoteColor),
+    FocusNoteInput(u64),
     TextChanged(u64, String),
     ToggleMenu(u64),
     ColorChanged(u64, NoteColor),
@@ -243,6 +244,39 @@ fn resolve_output_option(note: &Note, outputs: &[OutputInfo]) -> OutputOption {
         }
         _ => OutputOption::None,
     }
+}
+
+fn new_note_position(
+    notes: &HashMap<u64, Note>,
+    outputs: &[OutputInfo],
+    preset: SizePreset,
+) -> (i32, i32, Option<String>) {
+    const DEFAULT_POS: (i32, i32) = (120, 120);
+    const CASCADE_GAP: i32 = 12;
+
+    let Some(anchor) = notes.values().max_by_key(|note| note.id) else {
+        return (
+            DEFAULT_POS.0,
+            DEFAULT_POS.1,
+            outputs.first().map(|output| output.name.clone()),
+        );
+    };
+
+    let output = anchor
+        .output
+        .clone()
+        .or_else(|| outputs.first().map(|output| output.name.clone()));
+    let y = match output
+        .as_deref()
+        .and_then(|name| outputs.iter().find(|o| o.name == name))
+    {
+        Some(output) => anchor
+            .y
+            .clamp(0, (output.height - preset.note_height() as i32).max(0)),
+        None => anchor.y.max(0),
+    };
+
+    (anchor.x + anchor.width + CASCADE_GAP, y, output)
 }
 
 fn note_layer_settings(
@@ -926,22 +960,11 @@ impl PostitApp {
             Message::CreateNote(color) => {
                 let id = new_note_id();
                 let preset = self.settings.size_preset;
-                // Cascade rightward only, all notes sharing the first note's
-                // y — not the old diagonal down-right cascade — so a run of
-                // freshly-created notes reads as one row instead of a
-                // staircase. Stepping by the note's own width (plus a small
-                // gap) rather than a fixed pixel amount keeps consecutive
-                // notes from overlapping regardless of size preset.
-                const CASCADE_GAP: i32 = 12;
-                let step = ((self.notes.len() as i32) % 10) * (preset.default_note_width() + CASCADE_GAP);
-                let x = 120 + step;
-                let y = 120;
+                let (x, y, output) = new_note_position(&self.notes, &self.outputs, preset);
                 let bound_app = self.active_app.clone();
                 let mut note = Note::new(id, color, x, y, bound_app);
                 note.width = preset.default_note_width();
-                if let Some(first) = self.outputs.first() {
-                    note.output = Some(first.name.clone());
-                }
+                note.output = output;
 
                 let surface_id = window::Id::unique();
                 self.surfaces.insert(surface_id, id);
@@ -955,8 +978,10 @@ impl PostitApp {
                     settings,
                     id: surface_id,
                 });
-                let focus_task = iced::widget::operation::focus::<Message>(format!("postit-input-{}", id));
-                Task::batch(vec![new_layer_task, focus_task])
+                Task::batch(vec![new_layer_task, Task::done(Message::FocusNoteInput(id))])
+            }
+            Message::FocusNoteInput(note_id) => {
+                iced::widget::operation::focus(format!("postit-input-{}", note_id))
             }
             Message::TextChanged(note_id, text) => {
                 let Some(note) = self.notes.get(&note_id) else {
